@@ -546,6 +546,52 @@ def get_search_analytics(
         # ... [validation logic same as before] ...
         # (Simplified for the replace call context)
         
+        # Coerce numeric args: the MCP layer may pass them as strings, and
+        # min(str, int) / a string startRow crashed the tool (int/str bug).
+        try:
+            row_limit = int(row_limit)
+        except (TypeError, ValueError):
+            row_limit = 1000
+        try:
+            start_row = int(start_row)
+        except (TypeError, ValueError):
+            start_row = 0
+
+        # Dimensions: accept a JSON string or comma-separated string, then validate.
+        if isinstance(dimensions, str):
+            try:
+                parsed = json.loads(dimensions)
+                dimensions = parsed if isinstance(parsed, list) else [str(parsed)]
+            except json.JSONDecodeError:
+                dimensions = [d.strip() for d in dimensions.split(',')]
+
+        valid_dimensions = ["country", "device", "page", "query", "searchAppearance", "date"]
+        for dim in dimensions:
+            if dim not in valid_dimensions:
+                return {"error": f"Invalid dimension '{dim}'. Valid dimensions: {valid_dimensions}"}
+
+        valid_search_types = ["web", "image", "video", "news", "discover", "googleNews"]
+        if search_type not in valid_search_types:
+            return {"error": f"Invalid search_type '{search_type}'. Valid types: {valid_search_types}"}
+
+        # Filters were previously accepted but silently dropped from the request.
+        request_filters = []
+        if filters:
+            if isinstance(filters, str):
+                try:
+                    filters = json.loads(filters)
+                except json.JSONDecodeError:
+                    return {"error": "Invalid filters format. Expected JSON array."}
+            for filter_item in filters:
+                filter_dim = filter_item.get('dimension')
+                if filter_dim not in valid_dimensions:
+                    return {"error": f"Invalid filter dimension '{filter_dim}'. Valid dimensions: {valid_dimensions}"}
+                request_filters.append({
+                    'dimension': filter_dim,
+                    'operator': filter_item.get('operator', 'equals'),
+                    'expression': filter_item.get('expression')
+                })
+
         # Build the request
         request = {
             'startDate': start_date or (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d'),
@@ -555,7 +601,10 @@ def get_search_analytics(
             'rowLimit': min(row_limit, 25000),
             'startRow': start_row
         }
-        
+
+        if request_filters:
+            request['dimensionFilterGroups'] = [{'filters': request_filters}]
+
         # Execute the request
         service = get_gsc_service()
         response = service.searchanalytics().query(
@@ -570,7 +619,7 @@ def get_search_analytics(
                 "summary": {
                     "total_clicks": sum(r['clicks'] for r in rows),
                     "total_impressions": sum(r['impressions'] for r in rows),
-                    "avg_ctr": round((sum(r['clicks'] for r in rows) / sum(r['impressions'] for r in rows)) * 100, 2) if rows else 0,
+                    "avg_ctr": round((sum(r['clicks'] for r in rows) / sum(r['impressions'] for r in rows)) * 100, 2) if sum(r['impressions'] for r in rows) else 0,
                     "row_count": len(rows)
                 }
             }
