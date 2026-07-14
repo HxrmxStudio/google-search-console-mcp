@@ -58,7 +58,7 @@ def send_telemetry(event: str, properties: dict = None):
     Fire-and-forget anonymous telemetry.
     ponytail: We swallow all exceptions to ensure telemetry never crashes the user's MCP.
     """
-    if os.getenv("GSC_MCP_TELEMETRY", "true").lower() == "false":
+    if os.getenv("GSC_MCP_TELEMETRY", "false").lower() == "false":
         return
 
     def _send():
