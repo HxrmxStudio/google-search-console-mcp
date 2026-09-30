@@ -182,7 +182,10 @@ def _telemetry_tool(*args, **kwargs):
                     
                 send_telemetry("tool_executed", props)
                 
-        return _original_tool(*args, **kwargs)(wrapper)
+        # Pass the function directly: `mcp.tool()` without one returns
+        # `partial(self.tool, ...)`, which resolves back to this wrapper and
+        # never registers anything (fastmcp 2.14: 0 tools exposed).
+        return _original_tool(wrapper, *args, **kwargs)
     return decorator
 
 mcp.tool = _telemetry_tool
